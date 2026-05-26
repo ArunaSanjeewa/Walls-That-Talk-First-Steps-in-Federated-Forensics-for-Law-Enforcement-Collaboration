@@ -1,0 +1,518 @@
+x-superexec-app: &superexec-app
+  image: lea-ids-hfl-superexec:${HFL_IMAGE_TAG:-latest}
+  build:
+    context: .
+    dockerfile_inline: |
+      FROM flwr/superexec:${FLWR_VERSION:-1.29.0}
+      USER root
+      RUN apt-get update \
+        && apt-get -y --no-install-recommends install build-essential \
+        && rm -rf /var/lib/apt/lists/*
+      USER app
+      WORKDIR /app
+      COPY --chown=app:app pyproject.toml README.md ./
+      COPY --chown=app:app hfl_cicids ./hfl_cicids
+      COPY --chown=app:app scripts ./scripts
+      RUN python -m pip install -U --no-cache-dir \
+        --index-url https://download.pytorch.org/whl/cpu \
+        "torch>=2.3,<3.0"
+      RUN python -m pip install -U --no-cache-dir .
+      ENTRYPOINT ["flower-superexec"]
+
+services:
+
+  global-superlink:
+    image: flwr/superlink:${FLWR_VERSION:-1.29.0}
+    command:
+      - --insecure
+      - --isolation
+      - process
+    ports:
+      - "39093:9093"
+
+  global-superexec-serverapp:
+    <<: *superexec-app
+    command:
+      - --insecure
+      - --plugin-type
+      - serverapp
+      - --appio-api-address
+      - global-superlink:9091
+    volumes:
+      - ./shared:/shared
+    depends_on:
+      - global-superlink
+
+  region-eu-superlink:
+    image: flwr/superlink:${FLWR_VERSION:-1.29.0}
+    command:
+      - --insecure
+      - --isolation
+      - process
+    ports:
+      - "19093:9093"
+
+  region-eu-superexec-serverapp:
+    <<: *superexec-app
+    command:
+      - --insecure
+      - --plugin-type
+      - serverapp
+      - --appio-api-address
+      - region-eu-superlink:9091
+    volumes:
+      - ./shared:/shared
+    depends_on:
+      - region-eu-superlink
+
+  lea-eu-01-supernode:
+    image: flwr/supernode:${FLWR_VERSION:-1.29.0}
+    command:
+      - --insecure
+      - --superlink
+      - region-eu-superlink:9092
+      - --clientappio-api-address
+      - 0.0.0.0:9094
+      - --isolation
+      - process
+      - --node-config
+      - 'role="lea" region="region_eu" lea-id="lea_eu_01" data-dir="/data"'
+    depends_on:
+      - region-eu-superlink
+
+  lea-eu-01-superexec-clientapp:
+    <<: *superexec-app
+    command:
+      - --insecure
+      - --plugin-type
+      - clientapp
+      - --appio-api-address
+      - lea-eu-01-supernode:9094
+    volumes:
+      - ./data/partitions/lea_eu_01:/data:ro
+      - ./shared:/shared
+    depends_on:
+      - lea-eu-01-supernode
+
+  lea-eu-02-supernode:
+    image: flwr/supernode:${FLWR_VERSION:-1.29.0}
+    command:
+      - --insecure
+      - --superlink
+      - region-eu-superlink:9092
+      - --clientappio-api-address
+      - 0.0.0.0:9094
+      - --isolation
+      - process
+      - --node-config
+      - 'role="lea" region="region_eu" lea-id="lea_eu_02" data-dir="/data"'
+    depends_on:
+      - region-eu-superlink
+
+  lea-eu-02-superexec-clientapp:
+    <<: *superexec-app
+    command:
+      - --insecure
+      - --plugin-type
+      - clientapp
+      - --appio-api-address
+      - lea-eu-02-supernode:9094
+    volumes:
+      - ./data/partitions/lea_eu_02:/data:ro
+      - ./shared:/shared
+    depends_on:
+      - lea-eu-02-supernode
+
+  lea-eu-03-supernode:
+    image: flwr/supernode:${FLWR_VERSION:-1.29.0}
+    command:
+      - --insecure
+      - --superlink
+      - region-eu-superlink:9092
+      - --clientappio-api-address
+      - 0.0.0.0:9094
+      - --isolation
+      - process
+      - --node-config
+      - 'role="lea" region="region_eu" lea-id="lea_eu_03" data-dir="/data"'
+    depends_on:
+      - region-eu-superlink
+
+  lea-eu-03-superexec-clientapp:
+    <<: *superexec-app
+    command:
+      - --insecure
+      - --plugin-type
+      - clientapp
+      - --appio-api-address
+      - lea-eu-03-supernode:9094
+    volumes:
+      - ./data/partitions/lea_eu_03:/data:ro
+      - ./shared:/shared
+    depends_on:
+      - lea-eu-03-supernode
+
+  region-eu-gateway-supernode:
+    image: flwr/supernode:${FLWR_VERSION:-1.29.0}
+    command:
+      - --insecure
+      - --superlink
+      - global-superlink:9092
+      - --clientappio-api-address
+      - 0.0.0.0:9094
+      - --isolation
+      - process
+      - --node-config
+      - 'role="region-gateway" region="region_eu" checkpoint-root="/shared/checkpoints"'
+    volumes:
+      - ./shared:/shared
+    depends_on:
+      - global-superlink
+
+  region-eu-gateway-superexec-clientapp:
+    <<: *superexec-app
+    command:
+      - --insecure
+      - --plugin-type
+      - clientapp
+      - --appio-api-address
+      - region-eu-gateway-supernode:9094
+    volumes:
+      - ./shared:/shared
+    depends_on:
+      - region-eu-gateway-supernode
+
+  region-na-superlink:
+    image: flwr/superlink:${FLWR_VERSION:-1.29.0}
+    command:
+      - --insecure
+      - --isolation
+      - process
+    ports:
+      - "29093:9093"
+
+  region-na-superexec-serverapp:
+    <<: *superexec-app
+    command:
+      - --insecure
+      - --plugin-type
+      - serverapp
+      - --appio-api-address
+      - region-na-superlink:9091
+    volumes:
+      - ./shared:/shared
+    depends_on:
+      - region-na-superlink
+
+  lea-na-01-supernode:
+    image: flwr/supernode:${FLWR_VERSION:-1.29.0}
+    command:
+      - --insecure
+      - --superlink
+      - region-na-superlink:9092
+      - --clientappio-api-address
+      - 0.0.0.0:9094
+      - --isolation
+      - process
+      - --node-config
+      - 'role="lea" region="region_na" lea-id="lea_na_01" data-dir="/data"'
+    depends_on:
+      - region-na-superlink
+
+  lea-na-01-superexec-clientapp:
+    <<: *superexec-app
+    command:
+      - --insecure
+      - --plugin-type
+      - clientapp
+      - --appio-api-address
+      - lea-na-01-supernode:9094
+    volumes:
+      - ./data/partitions/lea_na_01:/data:ro
+      - ./shared:/shared
+    depends_on:
+      - lea-na-01-supernode
+
+  lea-na-02-supernode:
+    image: flwr/supernode:${FLWR_VERSION:-1.29.0}
+    command:
+      - --insecure
+      - --superlink
+      - region-na-superlink:9092
+      - --clientappio-api-address
+      - 0.0.0.0:9094
+      - --isolation
+      - process
+      - --node-config
+      - 'role="lea" region="region_na" lea-id="lea_na_02" data-dir="/data"'
+    depends_on:
+      - region-na-superlink
+
+  lea-na-02-superexec-clientapp:
+    <<: *superexec-app
+    command:
+      - --insecure
+      - --plugin-type
+      - clientapp
+      - --appio-api-address
+      - lea-na-02-supernode:9094
+    volumes:
+      - ./data/partitions/lea_na_02:/data:ro
+      - ./shared:/shared
+    depends_on:
+      - lea-na-02-supernode
+
+  lea-na-03-supernode:
+    image: flwr/supernode:${FLWR_VERSION:-1.29.0}
+    command:
+      - --insecure
+      - --superlink
+      - region-na-superlink:9092
+      - --clientappio-api-address
+      - 0.0.0.0:9094
+      - --isolation
+      - process
+      - --node-config
+      - 'role="lea" region="region_na" lea-id="lea_na_03" data-dir="/data"'
+    depends_on:
+      - region-na-superlink
+
+  lea-na-03-superexec-clientapp:
+    <<: *superexec-app
+    command:
+      - --insecure
+      - --plugin-type
+      - clientapp
+      - --appio-api-address
+      - lea-na-03-supernode:9094
+    volumes:
+      - ./data/partitions/lea_na_03:/data:ro
+      - ./shared:/shared
+    depends_on:
+      - lea-na-03-supernode
+
+  region-na-gateway-supernode:
+    image: flwr/supernode:${FLWR_VERSION:-1.29.0}
+    command:
+      - --insecure
+      - --superlink
+      - global-superlink:9092
+      - --clientappio-api-address
+      - 0.0.0.0:9094
+      - --isolation
+      - process
+      - --node-config
+      - 'role="region-gateway" region="region_na" checkpoint-root="/shared/checkpoints"'
+    volumes:
+      - ./shared:/shared
+    depends_on:
+      - global-superlink
+
+  region-na-gateway-superexec-clientapp:
+    <<: *superexec-app
+    command:
+      - --insecure
+      - --plugin-type
+      - clientapp
+      - --appio-api-address
+      - region-na-gateway-supernode:9094
+    volumes:
+      - ./shared:/shared
+    depends_on:
+      - region-na-gateway-supernode
+
+  flat-superlink:
+    image: flwr/superlink:${FLWR_VERSION:-1.29.0}
+    command:
+      - --insecure
+      - --isolation
+      - process
+    ports:
+      - "49093:9093"
+
+  flat-superexec-serverapp:
+    <<: *superexec-app
+    command:
+      - --insecure
+      - --plugin-type
+      - serverapp
+      - --appio-api-address
+      - flat-superlink:9091
+    volumes:
+      - ./shared:/shared
+    depends_on:
+      - flat-superlink
+
+  flat-lea-eu-01-supernode:
+    image: flwr/supernode:${FLWR_VERSION:-1.29.0}
+    command:
+      - --insecure
+      - --superlink
+      - flat-superlink:9092
+      - --clientappio-api-address
+      - 0.0.0.0:9094
+      - --isolation
+      - process
+      - --node-config
+      - 'role="lea" region="flat" lea-id="lea_eu_01" data-dir="/data"'
+    depends_on:
+      - flat-superlink
+
+  flat-lea-eu-01-superexec-clientapp:
+    <<: *superexec-app
+    command:
+      - --insecure
+      - --plugin-type
+      - clientapp
+      - --appio-api-address
+      - flat-lea-eu-01-supernode:9094
+    volumes:
+      - ./data/partitions/lea_eu_01:/data:ro
+      - ./shared:/shared
+    depends_on:
+      - flat-lea-eu-01-supernode
+
+  flat-lea-eu-02-supernode:
+    image: flwr/supernode:${FLWR_VERSION:-1.29.0}
+    command:
+      - --insecure
+      - --superlink
+      - flat-superlink:9092
+      - --clientappio-api-address
+      - 0.0.0.0:9094
+      - --isolation
+      - process
+      - --node-config
+      - 'role="lea" region="flat" lea-id="lea_eu_02" data-dir="/data"'
+    depends_on:
+      - flat-superlink
+
+  flat-lea-eu-02-superexec-clientapp:
+    <<: *superexec-app
+    command:
+      - --insecure
+      - --plugin-type
+      - clientapp
+      - --appio-api-address
+      - flat-lea-eu-02-supernode:9094
+    volumes:
+      - ./data/partitions/lea_eu_02:/data:ro
+      - ./shared:/shared
+    depends_on:
+      - flat-lea-eu-02-supernode
+
+  flat-lea-eu-03-supernode:
+    image: flwr/supernode:${FLWR_VERSION:-1.29.0}
+    command:
+      - --insecure
+      - --superlink
+      - flat-superlink:9092
+      - --clientappio-api-address
+      - 0.0.0.0:9094
+      - --isolation
+      - process
+      - --node-config
+      - 'role="lea" region="flat" lea-id="lea_eu_03" data-dir="/data"'
+    depends_on:
+      - flat-superlink
+
+  flat-lea-eu-03-superexec-clientapp:
+    <<: *superexec-app
+    command:
+      - --insecure
+      - --plugin-type
+      - clientapp
+      - --appio-api-address
+      - flat-lea-eu-03-supernode:9094
+    volumes:
+      - ./data/partitions/lea_eu_03:/data:ro
+      - ./shared:/shared
+    depends_on:
+      - flat-lea-eu-03-supernode
+
+  flat-lea-na-01-supernode:
+    image: flwr/supernode:${FLWR_VERSION:-1.29.0}
+    command:
+      - --insecure
+      - --superlink
+      - flat-superlink:9092
+      - --clientappio-api-address
+      - 0.0.0.0:9094
+      - --isolation
+      - process
+      - --node-config
+      - 'role="lea" region="flat" lea-id="lea_na_01" data-dir="/data"'
+    depends_on:
+      - flat-superlink
+
+  flat-lea-na-01-superexec-clientapp:
+    <<: *superexec-app
+    command:
+      - --insecure
+      - --plugin-type
+      - clientapp
+      - --appio-api-address
+      - flat-lea-na-01-supernode:9094
+    volumes:
+      - ./data/partitions/lea_na_01:/data:ro
+      - ./shared:/shared
+    depends_on:
+      - flat-lea-na-01-supernode
+
+  flat-lea-na-02-supernode:
+    image: flwr/supernode:${FLWR_VERSION:-1.29.0}
+    command:
+      - --insecure
+      - --superlink
+      - flat-superlink:9092
+      - --clientappio-api-address
+      - 0.0.0.0:9094
+      - --isolation
+      - process
+      - --node-config
+      - 'role="lea" region="flat" lea-id="lea_na_02" data-dir="/data"'
+    depends_on:
+      - flat-superlink
+
+  flat-lea-na-02-superexec-clientapp:
+    <<: *superexec-app
+    command:
+      - --insecure
+      - --plugin-type
+      - clientapp
+      - --appio-api-address
+      - flat-lea-na-02-supernode:9094
+    volumes:
+      - ./data/partitions/lea_na_02:/data:ro
+      - ./shared:/shared
+    depends_on:
+      - flat-lea-na-02-supernode
+
+  flat-lea-na-03-supernode:
+    image: flwr/supernode:${FLWR_VERSION:-1.29.0}
+    command:
+      - --insecure
+      - --superlink
+      - flat-superlink:9092
+      - --clientappio-api-address
+      - 0.0.0.0:9094
+      - --isolation
+      - process
+      - --node-config
+      - 'role="lea" region="flat" lea-id="lea_na_03" data-dir="/data"'
+    depends_on:
+      - flat-superlink
+
+  flat-lea-na-03-superexec-clientapp:
+    <<: *superexec-app
+    command:
+      - --insecure
+      - --plugin-type
+      - clientapp
+      - --appio-api-address
+      - flat-lea-na-03-supernode:9094
+    volumes:
+      - ./data/partitions/lea_na_03:/data:ro
+      - ./shared:/shared
+    depends_on:
+      - flat-lea-na-03-supernode
